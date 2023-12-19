@@ -374,7 +374,7 @@ elif authentication_status:
         
         col3.button(button_3_text, on_click=click_button, args=['The really funny thing is this doesnt have to be button 3 but Ill make it that anyways'])
     
-    
+    st.write(st.session_state.count)
     #Update our counter so we don't repeat the introduction
     st.session_state.count += 1
     
