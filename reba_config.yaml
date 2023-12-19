@@ -1,0 +1,9 @@
+credentials:
+  usernames:
+    Reba_Tester:
+      name: Reba Tester
+      password: $2b$12$ESQB4i7cLM2TIzWBY76.sOoxTyFJbr6Lxm0Ac5viePqv1JvkGWL3G
+cookie:
+  expiry_days: 30
+  key: heres_your_one_chance_fancy
+  name: random_cookie_name
