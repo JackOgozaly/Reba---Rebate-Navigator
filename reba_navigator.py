@@ -24,12 +24,217 @@ from langchain.vectorstores import Chroma #Used to store embeddings
 import yaml
 from yaml.loader import SafeLoader
 import streamlit_authenticator as stauth
-
-
+#Shennanigans so streamlit hosting can download our embeddings properly
 __import__('pysqlite3')
 import sys
 sys.modules['sqlite3'] = sys.modules.pop('pysqlite3')
 import sqlite3
+
+
+
+#______________________Config Items_____________________________
+#Bring in API Key
+os.environ["OPENAI_API_KEY"] = st.secrets["openai_key"]
+openai.api_key = st.secrets["openai_key"]
+google_api_key = json.loads(st.secrets['google_api_key'], strict=False)
+
+#Example prompts
+button_1_text = "I'm a homeowner in VA, how can I save money?"
+button_2_text = "I'm buying a vehicle and want to know if I can save some money."
+button_3_text = "I'm renting an apartment, how can I save money?"
+
+
+icon_pic = "https://github.com/JackOgozaly/doe_nav_bot/blob/main/%20%20chatbot_icon.png?raw=true"
+
+#Introduction text
+introduction_text = """Hello, I'm Reba! I can help you find and understand various DOE tax incentives and energy saving advice. How can I help you today?"""
+
+##___________________Switch Bot Configuration______________________________##
+switch_bot_chat = [{"role": "user", "content": 
+                    """
+                    You are a bot trained to trigger another bot that finds users information on tax rebates, energy saving tips, and tax incentives. Your goal is to concisely interact with users (be very brief please) and once you have enough information type "DONE -" at the very start of your
+                    output followed with a summary of the user's request (please paraphrase the users request and speak in the fist person, do not attempt to answer the request). Do not give the user any info on tax rebates, etc., that is the job of the next bot and you will fail if you do. I repeat, 
+                    if you tell the user any specific details after knowing their location and topic of interest this whole app will fail.
+                    
+                    Only type "DONE -" followed with your summary once you have all the information you need. Specifically, you'll want to know someone's location (their state) and you'll want to know what they could have that would possibly qualify for 
+                    a DOE rebate, tax incentive, or whatever could have energy saving tips for. Do note, for something like vehicles or cars, you don't need to know the specific location. Anything involving houses or apartments you will though
+                    
+                    Once you type 'DONE -' you can not ask the user anymore about location, time period, etc. You must have all the info you need or the next bot will fail.
+                    
+                    Please present yourself as Reba, a large language model trained to find DOE resources. You can help guide the user to finding out what data they are looking for.
+                    Example: if a user asks what you can help with you, you can describe various DOE incentives, such as an eletric vehicle tax credit (you don't have to give that specific example, it's just an idea)
+                    
+                    If a user asks a follow up question, redirect that question again by saying "DONE -" once more. I cannot emphasize enough that this app working is reliant on you not telling the user any details and instead directing them to the other 
+                    bot by saying "DONE -"
+                    
+                    Example: if a user asks a follow up question about a tax credit your output should be "DONE - The user lives in {prior state they told you about} and wants to learn more about that specific home tax credit in their state"
+                    
+                    
+                    """},
+                   {"role": "assistant", "content": "OK"}]
+
+#____________________Streamlit Setup____________________________#
+
+# Initialize chat history
+if "messages" not in st.session_state:
+    st.session_state.messages = []
+
+#Initialize Counter
+if 'count' not in st.session_state:
+    st.session_state.count = 0
+
+#Initialize total cost
+if 'total_cost' not in st.session_state:
+    st.session_state['total_cost'] = 0.0
+
+#Initialize total tokens
+if 'total_tokens' not in st.session_state:
+    st.session_state['total_tokens'] = 0
+
+#Defining our stateful buttons
+if 'clicked1' not in st.session_state:
+    st.session_state.clicked1 = False
+
+if 'clicked2' not in st.session_state:
+    st.session_state.clicked2 = False
+    
+if 'clicked3' not in st.session_state:
+    st.session_state.clicked3 = False
+
+#Switch bot convo
+if "switch_bot_chat" not in st.session_state:
+    st.session_state.switch_bot_chat = switch_bot_chat
+
+
+
+#_____________________Function Setup________________________#
+def download_file(real_file_id, local_folder_path):
+    """Downloads a file
+    Args:
+        real_file_id: ID of the file to download
+        local_folder_path: Local path where the file will be saved
+    Returns: IO object with location.
+    """    
+    # create drive api client
+    service = build("drive", "v3", credentials=credentials)
+
+    file_id = real_file_id
+
+    # Get file metadata to obtain the file name
+    file_metadata = service.files().get(fileId=file_id).execute()
+    file_name = file_metadata['name']
+
+    local_file_path = os.path.join(local_folder_path, file_name)
+
+    # pylint: disable=maybe-no-member
+    request = service.files().get_media(fileId=file_id)
+    with open(local_file_path, 'wb') as local_file:
+        downloader = MediaIoBaseDownload(local_file, request)
+        done = False
+        while done is False:
+                status, done = downloader.next_chunk()
+
+    return local_file_path
+
+
+def fake_typing(text):
+    '''
+    This function should be placed within a 
+    with st.chat_message("assistant"):
+    '''
+    
+    #These are purely cosmetic for making that chatbot look
+    message_placeholder = st.empty()
+    full_response = ""
+    
+    # Simulate stream of response with milliseconds delay
+    for index, chunk in enumerate(re.findall(r"\w+|\s+|\n|[^\w\s]", text)):
+        full_response += chunk
+        time.sleep(0.05)
+        # Add a blinking cursor to simulate typing
+        if index != len(re.findall(r"\w+|\s+|\n|[^\w\s]", text)) - 1:
+            message_placeholder.markdown(full_response + "▌")
+        else:
+            message_placeholder.markdown(full_response)
+    # Add assistant response to chat history
+    st.session_state.messages.append({"role": "assistant", "content": full_response})
+
+def llm_output(llm_response):
+    '''
+    Take the output of a langcahin output and clean it up for the user
+    '''
+    
+    #Empty list of links
+    relevant_links = []
+    
+    #Go through our sources and find which URLs the LLM pulled from
+    #Sort them by how many times it was references, and rank the top two sources
+    for document in llm_response['source_documents']:
+        relevant_links.append(document.metadata['source'])
+    # Create a non-duplicated list sorted by frequency
+    element_count = Counter(relevant_links)
+    relevant_links = sorted(element_count, key=lambda x: element_count[x], reverse=True)
+    #Filter for the top two URLS
+    relevant_links = relevant_links[0:4]
+    #Print our output into the chat
+    fake_typing(llm_response['answer'].replace("$", "\$") + '\n\nSources:\n\n' + "\n\n".join(relevant_links))
+
+def click_button(button_type):
+    '''
+    Function for making our buttons stateful
+    ''' 
+    if button_type == 'Button 1':
+        st.session_state.clicked1 = True
+    elif button_type == 'Button 2':
+        st.session_state.clicked2 = True
+    else:
+        st.session_state.clicked3 = True
+
+def chatbot(question):
+    # Display assistant response in chat message container
+    with st.chat_message("assistant", avatar = icon_pic):
+    
+       with get_openai_callback() as cb:
+             #Chat GPT response
+             response = qa({"question": question})
+             st.session_state['total_cost'] += cb.total_cost
+             st.session_state['total_tokens'] += cb.total_tokens
+             counter_placeholder.write(f"Total cost of this conversation: ${st.session_state['total_cost']:.5f}")
+             token_placeholder.write(f"Total Tokens Used in Conversation: {st.session_state['total_tokens']}")              
+       #Take our model's output and clean it up for the user
+       llm_output(response)
+
+
+
+#________________________Embedding Setup_____________________________________#
+
+#Files to download
+files = ['1iqn5yMtwdltdNYwGaoZGkLfTarLDE7Ah', '1lorEvsGcT1crC90AvKzplW59kjyG1eCp', 
+         '1k0l0JEs_k-wm2EXESjqfXXx7W_xcTSpF', '1X1lpub9C8ShV-RRmJlkKbI-tc66wBuKn', 
+         '1KTsHYpR72bPhewNMS-XTExNQBVelRJZG']
+
+download_path = ['~/doe_nav/',
+                 '~/doe_nav/fd9f04dc-2dc5-4579-a038-9686ab316fe5/',
+                 '~/doe_nav/fd9f04dc-2dc5-4579-a038-9686ab316fe5/',
+                 '~/doe_nav/fd9f04dc-2dc5-4579-a038-9686ab316fe5/',
+                 '~/doe_nav/fd9f04dc-2dc5-4579-a038-9686ab316fe5/']
+
+#Make our directory
+if not os.path.exists(download_path[1]):
+    os.makedirs(download_path[1])
+
+
+#We only want to call the Google Drive API once per script run. Once the directory exists and has files, don't download anything
+if len(os.listdir(download_path[1])) == 0:     
+    # Create credentials from the JSON object
+    credentials = service_account.Credentials.from_service_account_info(
+             google_api_key,
+             scopes=["https://www.googleapis.com/auth/drive"]
+         )
+    
+    for file, path in zip(files, download_path):
+        download_file(real_file_id=file, local_folder_path=path)
+
 
 #___________Streamlit Authentication__________#
 with open('reba_config.yaml') as file:
@@ -55,210 +260,7 @@ elif authentication_status:
     st.subheader("Your Guide to Energy Rebates and Tax Incentives")
     st.sidebar.image('https://raw.githubusercontent.com/JackOgozaly/doe_nav_bot/main/reba_mascot.png')
     #st.caption('A LLM interface to explore various DOE tax incentives and energy saving advice')
-    #Chatbot icon pic
-    icon_pic = "https://github.com/JackOgozaly/doe_nav_bot/blob/main/%20%20chatbot_icon.png?raw=true"
-    
-    #Introduction text
-    introduction_text = """Hello, I'm Reba! I can help you find and understand various DOE tax incentives and energy saving advice. How can I help you today?"""
-    
-    #Bring in API Key
-    os.environ["OPENAI_API_KEY"] = st.secrets["openai_key"]
-    openai.api_key = st.secrets["openai_key"]
-    google_api_key = json.loads(st.secrets['google_api_key'], strict=False)
-    
-    #Example prompts
-    button_1_text = "I'm a homeowner in VA, how can I save money?"
-    button_2_text = "I'm buying a vehicle and want to know if I can save some money."
-    button_3_text = "I'm renting an apartment, how can I save money?"
-    
-    
-    ##___________________Switch Bot Configuration______________________________##
-    switch_bot_chat = [{"role": "user", "content": 
-                        """
-                        You are a bot trained to trigger another bot that finds users information on tax rebates, energy saving tips, and tax incentives. Your goal is to concisely interact with users (be very brief please) and once you have enough information type "DONE -" at the very start of your
-                        output followed with a summary of the user's request (please paraphrase the users request and speak in the fist person, do not attempt to answer the request). Do not give the user any info on tax rebates, etc., that is the job of the next bot and you will fail if you do. I repeat, 
-                        if you tell the user any specific details after knowing their location and topic of interest this whole app will fail.
-                        
-                        Only type "DONE -" followed with your summary once you have all the information you need. Specifically, you'll want to know someone's location (their state) and you'll want to know what they could have that would possibly qualify for 
-                        a DOE rebate, tax incentive, or whatever could have energy saving tips for. Do note, for something like vehicles or cars, you don't need to know the specific location. Anything involving houses or apartments you will though
-                        
-                        Once you type 'DONE -' you can not ask the user anymore about location, time period, etc. You must have all the info you need or the next bot will fail.
-                        
-                        Please present yourself as Reba, a large language model trained to find DOE resources. You can help guide the user to finding out what data they are looking for.
-                        Example: if a user asks what you can help with you, you can describe various DOE incentives, such as an eletric vehicle tax credit (you don't have to give that specific example, it's just an idea)
-                        
-                        If a user asks a follow up question, redirect that question again by saying "DONE -" once more. I cannot emphasize enough that this app working is reliant on you not telling the user any details and instead directing them to the other 
-                        bot by saying "DONE -"
-                        
-                        Example: if a user asks a follow up question about a tax credit your output should be "DONE - The user lives in {prior state they told you about} and wants to learn more about that specific home tax credit in their state"
-                        
-                        
-                        """},
-                       {"role": "assistant", "content": "OK"}]
-    
-    
-    
-    #________________________Embedding Setup_____________________________________#
-    
-    #Files to download
-    files = ['1iqn5yMtwdltdNYwGaoZGkLfTarLDE7Ah', '1lorEvsGcT1crC90AvKzplW59kjyG1eCp', 
-             '1k0l0JEs_k-wm2EXESjqfXXx7W_xcTSpF', '1X1lpub9C8ShV-RRmJlkKbI-tc66wBuKn', 
-             '1KTsHYpR72bPhewNMS-XTExNQBVelRJZG']
-    
-    download_path = ['~/doe_nav/',
-                     '~/doe_nav/fd9f04dc-2dc5-4579-a038-9686ab316fe5/',
-                     '~/doe_nav/fd9f04dc-2dc5-4579-a038-9686ab316fe5/',
-                     '~/doe_nav/fd9f04dc-2dc5-4579-a038-9686ab316fe5/',
-                     '~/doe_nav/fd9f04dc-2dc5-4579-a038-9686ab316fe5/']
-    
-    #Make our directory
-    if not os.path.exists(download_path[1]):
-        os.makedirs(download_path[1])
-    
-    
-    #We only want to call the Google Drive API once per script run. Once the directory exists and has files, don't download anything
-    if len(os.listdir(download_path[1])) == 0:     
-        # Create credentials from the JSON object
-        credentials = service_account.Credentials.from_service_account_info(
-                 google_api_key,
-                 scopes=["https://www.googleapis.com/auth/drive"]
-             )
         
-        def download_file(real_file_id, local_folder_path):
-            """Downloads a file
-            Args:
-                real_file_id: ID of the file to download
-                local_folder_path: Local path where the file will be saved
-            Returns: IO object with location.
-            """    
-            # create drive api client
-            service = build("drive", "v3", credentials=credentials)
-        
-            file_id = real_file_id
-        
-            # Get file metadata to obtain the file name
-            file_metadata = service.files().get(fileId=file_id).execute()
-            file_name = file_metadata['name']
-        
-            local_file_path = os.path.join(local_folder_path, file_name)
-        
-            # pylint: disable=maybe-no-member
-            request = service.files().get_media(fileId=file_id)
-            with open(local_file_path, 'wb') as local_file:
-                downloader = MediaIoBaseDownload(local_file, request)
-                done = False
-                while done is False:
-                        status, done = downloader.next_chunk()
-        
-            return local_file_path
-        
-        for file, path in zip(files, download_path):
-            download_file(real_file_id=file, local_folder_path=path)
-        
-    
-    #_____________________Function Setup________________________#
-    
-    def fake_typing(text):
-        '''
-        This function should be placed within a 
-        with st.chat_message("assistant"):
-        '''
-        
-        #These are purely cosmetic for making that chatbot look
-        message_placeholder = st.empty()
-        full_response = ""
-        
-        # Simulate stream of response with milliseconds delay
-        for index, chunk in enumerate(re.findall(r"\w+|\s+|\n|[^\w\s]", text)):
-            full_response += chunk
-            time.sleep(0.05)
-            # Add a blinking cursor to simulate typing
-            if index != len(re.findall(r"\w+|\s+|\n|[^\w\s]", text)) - 1:
-                message_placeholder.markdown(full_response + "▌")
-            else:
-                message_placeholder.markdown(full_response)
-        # Add assistant response to chat history
-        st.session_state.messages.append({"role": "assistant", "content": full_response})
-    
-    def llm_output(llm_response):
-        '''
-        Take the output of a langcahin output and clean it up for the user
-        '''
-        
-        #Empty list of links
-        relevant_links = []
-        
-        #Go through our sources and find which URLs the LLM pulled from
-        #Sort them by how many times it was references, and rank the top two sources
-        for document in llm_response['source_documents']:
-            relevant_links.append(document.metadata['source'])
-        # Create a non-duplicated list sorted by frequency
-        element_count = Counter(relevant_links)
-        relevant_links = sorted(element_count, key=lambda x: element_count[x], reverse=True)
-        #Filter for the top two URLS
-        relevant_links = relevant_links[0:4]
-        #Print our output into the chat
-        fake_typing(llm_response['answer'].replace("$", "\$") + '\n\nSources:\n\n' + "\n\n".join(relevant_links))
-    
-    def click_button(button_type):
-        '''
-        Function for making our buttons stateful
-        ''' 
-        if button_type == 'Button 1':
-            st.session_state.clicked1 = True
-        elif button_type == 'Button 2':
-            st.session_state.clicked2 = True
-        else:
-            st.session_state.clicked3 = True
-    
-    def chatbot(question):
-        # Display assistant response in chat message container
-        with st.chat_message("assistant", avatar = icon_pic):
-        
-           with get_openai_callback() as cb:
-                 #Chat GPT response
-                 response = qa({"question": question})
-                 st.session_state['total_cost'] += cb.total_cost
-                 st.session_state['total_tokens'] += cb.total_tokens
-                 counter_placeholder.write(f"Total cost of this conversation: ${st.session_state['total_cost']:.5f}")
-                 token_placeholder.write(f"Total Tokens Used in Conversation: {st.session_state['total_tokens']}")              
-           #Take our model's output and clean it up for the user
-           llm_output(response)
-    
-    #____________________Streamlit Setup____________________________#
-    
-    # Initialize chat history
-    if "messages" not in st.session_state:
-        st.session_state.messages = []
-    
-    #Initialize Counter
-    if 'count' not in st.session_state:
-        st.session_state.count = 0
-    
-    #Initialize total cost
-    if 'total_cost' not in st.session_state:
-        st.session_state['total_cost'] = 0.0
-    
-    #Initialize total tokens
-    if 'total_tokens' not in st.session_state:
-        st.session_state['total_tokens'] = 0
-    
-    #Defining our stateful buttons
-    if 'clicked1' not in st.session_state:
-        st.session_state.clicked1 = False
-    
-    if 'clicked2' not in st.session_state:
-        st.session_state.clicked2 = False
-        
-    if 'clicked3' not in st.session_state:
-        st.session_state.clicked3 = False
-    
-    #Switch bot convo
-    if "switch_bot_chat" not in st.session_state:
-        st.session_state.switch_bot_chat = switch_bot_chat
-    
-    
-    
     # Sidebar - let user choose model, see cost, and clear history
     st.sidebar.title("Chatbot Options")
     
