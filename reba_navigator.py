@@ -101,6 +101,9 @@ if 'clicked2' not in st.session_state:
 if 'clicked3' not in st.session_state:
     st.session_state.clicked3 = False
 
+if "clear" not in st.session_state:
+    st.session_state.clear = False
+
 #Switch bot convo
 if "switch_bot_chat" not in st.session_state:
     st.session_state.switch_bot_chat = switch_bot_chat
@@ -190,6 +193,9 @@ def click_button(button_type):
     else:
         st.session_state.clicked3 = True
 
+def clear_button():
+    st.session_state.clear = True
+
 def chatbot(question):
     # Display assistant response in chat message container
     with st.chat_message("assistant", avatar = icon_pic):
@@ -271,11 +277,11 @@ elif authentication_status:
     token_placeholder = st.sidebar.empty()
     token_placeholder.write(f"Total Tokens Used in Conversation: {st.session_state['total_tokens']}")
     #Option to clear out 
-    clear_button = st.sidebar.button("Clear Conversation", key="clear")
+    st.sidebar.button("Clear Conversation", on_click = clear_button, key="clear_button_1")
     
     
     #Reset the session
-    if clear_button:
+    if st.session_state.clear:
         st.session_state['messages'] = []
         st.session_state['count'] = 0
         st.session_state['total_cost'] = 0.0
@@ -283,6 +289,7 @@ elif authentication_status:
         st.session_state.clicked3 = False
         st.session_state.clicked2 = False
         st.session_state.clicked1 = False
+        st.session_state.clear = False
         counter_placeholder.write(f"Total cost of this conversation: ${st.session_state['total_cost']:.5f}")
         token_placeholder.write(f"Total Tokens Used in Conversation: {st.session_state['total_tokens']}")
     
