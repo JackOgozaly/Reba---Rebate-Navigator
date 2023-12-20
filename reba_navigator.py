@@ -374,11 +374,11 @@ elif authentication_status:
         col1, col2, col3 = st.columns(3)
         
         
-        col1.button(button_1_text, on_click=click_button, args=['Button 1'])
+        col1.button(button_1_text, on_click=click_button, args=['Button 1'], key="q_button_1")
         
-        col2.button(button_2_text, on_click=click_button, args=['Button 2'])
+        col2.button(button_2_text, on_click=click_button, args=['Button 2'], key="q_button_2")
         
-        col3.button(button_3_text, on_click=click_button, args=['The really funny thing is this doesnt have to be button 3 but Ill make it that anyways'])
+        col3.button(button_3_text, on_click=click_button, args=['The really funny thing is this doesnt have to be button 3 but Ill make it that anyways'], key="q_button_3")
     
     #Update our counter so we don't repeat the introduction
     st.session_state.count += 1
