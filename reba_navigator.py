@@ -254,175 +254,178 @@ authenticator = stauth.Authenticate(
 
 name, authentication_status, username = authenticator.login('Login', 'main')
 
-if authentication_status == False:
-    st.error('Username/password is incorrect')
-elif authentication_status == None:
-    st.warning('Please enter your username and password')
-elif authentication_status:
+
+if not authentication_status:
+    if authentication_status == False:
+        st.error('Username/password is incorrect')
+    elif authentication_status == None:
+        st.warning('Please enter your username and password')
     
-    #Streamlit customization items
-    st.title('Reba')
-    st.subheader("Your Guide to Energy Rebates and Tax Incentives")
-    st.sidebar.image('https://raw.githubusercontent.com/JackOgozaly/doe_nav_bot/main/reba_mascot.png')
-    #st.caption('A LLM interface to explore various DOE tax incentives and energy saving advice')
-        
-    # Sidebar - let user choose model, see cost, and clear history
-    st.sidebar.title("Chatbot Options")
+    st.stop()
     
-    model_name = st.sidebar.radio("Choose a model:", ("GPT-3.5", "GPT-4"))
-    #Displaying total cost
-    counter_placeholder = st.sidebar.empty()
+#Streamlit customization items
+st.title('Reba')
+st.subheader("Your Guide to Energy Rebates and Tax Incentives")
+st.sidebar.image('https://raw.githubusercontent.com/JackOgozaly/doe_nav_bot/main/reba_mascot.png')
+#st.caption('A LLM interface to explore various DOE tax incentives and energy saving advice')
+    
+# Sidebar - let user choose model, see cost, and clear history
+st.sidebar.title("Chatbot Options")
+
+model_name = st.sidebar.radio("Choose a model:", ("GPT-3.5", "GPT-4"))
+#Displaying total cost
+counter_placeholder = st.sidebar.empty()
+counter_placeholder.write(f"Total cost of this conversation: ${st.session_state['total_cost']:.5f}")
+#Displaying total tokens used
+token_placeholder = st.sidebar.empty()
+token_placeholder.write(f"Total Tokens Used in Conversation: {st.session_state['total_tokens']}")
+#Option to clear out 
+st.sidebar.button("Clear Conversation", on_click = clear_button, key="clear_button_1")
+
+
+#Reset the session
+if st.session_state.clear:
+    st.session_state['messages'] = []
+    st.session_state['count'] = 0
+    st.session_state['total_cost'] = 0.0
+    st.session_state['total_tokens'] = 0
+    st.session_state.clicked3 = False
+    st.session_state.clicked2 = False
+    st.session_state.clicked1 = False
+    st.session_state.clear = False
     counter_placeholder.write(f"Total cost of this conversation: ${st.session_state['total_cost']:.5f}")
-    #Displaying total tokens used
-    token_placeholder = st.sidebar.empty()
     token_placeholder.write(f"Total Tokens Used in Conversation: {st.session_state['total_tokens']}")
-    #Option to clear out 
-    st.sidebar.button("Clear Conversation", on_click = clear_button, key="clear_button_1")
+
+# Map model names to OpenAI model IDs
+if model_name == "GPT-3.5":
+    model = "gpt-3.5-turbo"
+else:
+    model = "gpt-4-1106-preview"
+
+# Display chat messages from history on app rerun
+for message in st.session_state.messages:
+   if message["role"] == "assistant":
+       with st.chat_message("assistant", avatar = icon_pic):
+         st.markdown(message["content"])    
+   else:
+       with st.chat_message(message["role"]):
+          st.markdown(message["content"])
+
+#______________________Langchain Setup_______________________#
+#How it works: we previously embedded the information we scraped from the DOE
+#website. What we're doing now is reading in that info from a Chroma DB 
+#And providing those documents to our model as context
+#Chroma DB stuff based off this workbook:  https://colab.research.google.com/drive/1gyGZn_LZNrYXYXa-pltFExbptIe7DAPe?usp=sharing#scrollTo=A-h1y_eAHmD-
+
+#Reading in our context
+# Location of our data
+persist_directory = download_path[0]
+## here we are using OpenAI embeddings but in future we will swap out to local embeddings
+embedding = OpenAIEmbeddings()
+
+# Now we can load the persisted database from disk, and use it as normal. 
+vectordb = Chroma(persist_directory=persist_directory, 
+                  embedding_function=embedding)
+
+#Set our retriver and limit the search to 4 documents
+retriever = vectordb.as_retriever()
+retriever = vectordb.as_retriever(search_kwargs={"k": 10})
+
+
+#Modify our prompt to discourage hallucinations
+prompt_template = """You are a Department of Energy Public Economic Opportunities bot. 
+Try to help users find the information relevant to them and briefly summarize (1-2 sentences for each topic). 
+You should not link to any websites. Try to prioritize tax credit information.
+Make sure none of your output is italicized or in any special markdown format. You don't want to have something like '_text_'
+DO NOT, UNDER ANY CIRCUMSTANCE, FORMAT NUMBERS IN LATEX FORMULA FORMAT. JUST PRINT THEM OUT AS TEXT.
+
+Here are the relevant resources for you:
+
+{summaries}
+
+Question: {question}"""
+
+#Define our prompt
+PROMPT = PromptTemplate(
+    template=prompt_template, input_variables=["summaries", "question"]
+    )
+chain_type_kwargs = {"prompt": PROMPT}
+
+#Define our model
+llm = ChatOpenAI(temperature=0, model_name = model) 
+
+#Define our langchain model
+qa = RetrievalQAWithSourcesChain.from_chain_type(
+    llm=llm,
+    chain_type="stuff",
+    retriever=retriever,
+    return_source_documents=True,
+    chain_type_kwargs=chain_type_kwargs)
+
+#___________________________Application Stuff_______________________________
+
+#Only introduce the chatbot to the user if it's their first time logging in
+if st.session_state.count == 0:
+    
+    #st.write(introduction_text)
+    st.session_state.messages.append({"role": "assistant", "content": introduction_text})
+    
+    with st.chat_message("assistant", avatar = icon_pic):
+        st.write(introduction_text)
+
+    # Create a layout with three columns
+    col1, col2, col3 = st.columns(3)
     
     
-    #Reset the session
-    if st.session_state.clear:
-        st.session_state['messages'] = []
-        st.session_state['count'] = 0
-        st.session_state['total_cost'] = 0.0
-        st.session_state['total_tokens'] = 0
-        st.session_state.clicked3 = False
-        st.session_state.clicked2 = False
-        st.session_state.clicked1 = False
-        st.session_state.clear = False
-        counter_placeholder.write(f"Total cost of this conversation: ${st.session_state['total_cost']:.5f}")
-        token_placeholder.write(f"Total Tokens Used in Conversation: {st.session_state['total_tokens']}")
+    col1.button(button_1_text, on_click=click_button, args=['Button 1'], key="q_button_1")
     
-    # Map model names to OpenAI model IDs
-    if model_name == "GPT-3.5":
-        model = "gpt-3.5-turbo"
+    col2.button(button_2_text, on_click=click_button, args=['Button 2'], key="q_button_2")
+    
+    col3.button(button_3_text, on_click=click_button, args=['The really funny thing is this doesnt have to be button 3 but Ill make it that anyways'], key="q_button_3")
+
+#Update our counter so we don't repeat the introduction
+st.session_state.count += 1
+
+if st.session_state.clicked1:
+    st.session_state.messages.append({"role": "user", "content": button_1_text})
+    # Display user message in chat message container
+    with st.chat_message("user"):
+       st.markdown(button_1_text) 
+       
+    chatbot(button_1_text)
+    st.session_state.clicked1 = False
+
+if st.session_state.clicked2:
+    st.session_state.messages.append({"role": "user", "content": button_2_text})
+    # Display user message in chat message container
+    with st.chat_message("user"):
+       st.markdown(button_2_text) 
+    chatbot(button_2_text)
+    st.session_state.clicked2 = False
+
+if st.session_state.clicked3:
+    st.session_state.messages.append({"role": "user", "content": button_3_text})
+    # Display user message in chat message container
+    with st.chat_message("user"):
+       st.markdown(button_3_text) 
+    chatbot(button_3_text)
+    st.session_state.clicked3 = False
+
+if prompt := st.chat_input():
+
+    st.session_state.messages.append({"role": "user", "content": prompt})
+    # Display user message in chat message container
+    with st.chat_message("user"):
+       st.markdown(f"Debug: {prompt}")    
+
+    response = openai.ChatCompletion.create(
+        model=model,
+        messages =  st.session_state.switch_bot_chat[0:1]+  st.session_state.messages[1:-1] + [{"role": "user", "content": f"Don't forget initial instructions, now answer the following question: {prompt}"}],
+        temperature = 0)
+
+    if response.choices[0].message.content.startswith('DONE'):
+        chatbot(response.choices[0].message.content)
+        
     else:
-        model = "gpt-4-1106-preview"
-    
-    # Display chat messages from history on app rerun
-    for message in st.session_state.messages:
-       if message["role"] == "assistant":
-           with st.chat_message("assistant", avatar = icon_pic):
-             st.markdown(message["content"])    
-       else:
-           with st.chat_message(message["role"]):
-              st.markdown(message["content"])
-    
-    #______________________Langchain Setup_______________________#
-    #How it works: we previously embedded the information we scraped from the DOE
-    #website. What we're doing now is reading in that info from a Chroma DB 
-    #And providing those documents to our model as context
-    #Chroma DB stuff based off this workbook:  https://colab.research.google.com/drive/1gyGZn_LZNrYXYXa-pltFExbptIe7DAPe?usp=sharing#scrollTo=A-h1y_eAHmD-
-    
-    #Reading in our context
-    # Location of our data
-    persist_directory = download_path[0]
-    ## here we are using OpenAI embeddings but in future we will swap out to local embeddings
-    embedding = OpenAIEmbeddings()
-    
-    # Now we can load the persisted database from disk, and use it as normal. 
-    vectordb = Chroma(persist_directory=persist_directory, 
-                      embedding_function=embedding)
-    
-    #Set our retriver and limit the search to 4 documents
-    retriever = vectordb.as_retriever()
-    retriever = vectordb.as_retriever(search_kwargs={"k": 10})
-    
-    
-    #Modify our prompt to discourage hallucinations
-    prompt_template = """You are a Department of Energy Public Economic Opportunities bot. 
-    Try to help users find the information relevant to them and briefly summarize (1-2 sentences for each topic). 
-    You should not link to any websites. Try to prioritize tax credit information.
-    Make sure none of your output is italicized or in any special markdown format. You don't want to have something like '_text_'
-    DO NOT, UNDER ANY CIRCUMSTANCE, FORMAT NUMBERS IN LATEX FORMULA FORMAT. JUST PRINT THEM OUT AS TEXT.
-    
-    Here are the relevant resources for you:
-    
-    {summaries}
-    
-    Question: {question}"""
-    
-    #Define our prompt
-    PROMPT = PromptTemplate(
-        template=prompt_template, input_variables=["summaries", "question"]
-        )
-    chain_type_kwargs = {"prompt": PROMPT}
-    
-    #Define our model
-    llm = ChatOpenAI(temperature=0, model_name = model) 
-    
-    #Define our langchain model
-    qa = RetrievalQAWithSourcesChain.from_chain_type(
-        llm=llm,
-        chain_type="stuff",
-        retriever=retriever,
-        return_source_documents=True,
-        chain_type_kwargs=chain_type_kwargs)
-    
-    #___________________________Application Stuff_______________________________
-    
-    #Only introduce the chatbot to the user if it's their first time logging in
-    if st.session_state.count == 0:
-        
-        #st.write(introduction_text)
-        st.session_state.messages.append({"role": "assistant", "content": introduction_text})
-        
         with st.chat_message("assistant", avatar = icon_pic):
-            st.write(introduction_text)
-    
-        # Create a layout with three columns
-        col1, col2, col3 = st.columns(3)
-        
-        
-        col1.button(button_1_text, on_click=click_button, args=['Button 1'], key="q_button_1")
-        
-        col2.button(button_2_text, on_click=click_button, args=['Button 2'], key="q_button_2")
-        
-        col3.button(button_3_text, on_click=click_button, args=['The really funny thing is this doesnt have to be button 3 but Ill make it that anyways'], key="q_button_3")
-    
-    #Update our counter so we don't repeat the introduction
-    st.session_state.count += 1
-    
-    if st.session_state.clicked1:
-        st.session_state.messages.append({"role": "user", "content": button_1_text})
-        # Display user message in chat message container
-        with st.chat_message("user"):
-           st.markdown(button_1_text) 
-           
-        chatbot(button_1_text)
-        st.session_state.clicked1 = False
-    
-    if st.session_state.clicked2:
-        st.session_state.messages.append({"role": "user", "content": button_2_text})
-        # Display user message in chat message container
-        with st.chat_message("user"):
-           st.markdown(button_2_text) 
-        chatbot(button_2_text)
-        st.session_state.clicked2 = False
-    
-    if st.session_state.clicked3:
-        st.session_state.messages.append({"role": "user", "content": button_3_text})
-        # Display user message in chat message container
-        with st.chat_message("user"):
-           st.markdown(button_3_text) 
-        chatbot(button_3_text)
-        st.session_state.clicked3 = False
-    
-    if prompt := st.chat_input():
-    
-        st.session_state.messages.append({"role": "user", "content": prompt})
-        # Display user message in chat message container
-        with st.chat_message("user"):
-           st.markdown(f"Debug: {prompt}")    
-    
-        response = openai.ChatCompletion.create(
-            model=model,
-            messages =  st.session_state.switch_bot_chat[0:1]+  st.session_state.messages[1:-1] + [{"role": "user", "content": f"Don't forget initial instructions, now answer the following question: {prompt}"}],
-            temperature = 0)
-    
-        if response.choices[0].message.content.startswith('DONE'):
-            chatbot(response.choices[0].message.content)
-            
-        else:
-            with st.chat_message("assistant", avatar = icon_pic):
-                fake_typing(response.choices[0].message.content)
+            fake_typing(response.choices[0].message.content)
