@@ -21,15 +21,22 @@ from langchain.callbacks import get_openai_callback #Used to bring in stuff like
 from langchain.embeddings import OpenAIEmbeddings #Used to embed
 from langchain.vectorstores import Chroma #Used to store embeddings
 
-#Shennanigans so streamlit hosting can download our embeddings properly
 __import__('pysqlite3')
 import sys
 sys.modules['sqlite3'] = sys.modules.pop('pysqlite3')
 import sqlite3
 
+#Streamlit customization items
+st.title('Reba')
+st.subheader("Your Guide to Energy Rebates and Tax Incentives")
+st.sidebar.image('https://raw.githubusercontent.com/JackOgozaly/doe_nav_bot/main/reba_mascot.png')
+#st.caption('A LLM interface to explore various DOE tax incentives and energy saving advice')
+#Chatbot icon pic
+icon_pic = "https://github.com/JackOgozaly/doe_nav_bot/blob/main/%20%20chatbot_icon.png?raw=true"
 
+#Introduction text
+introduction_text = """Hello, I'm Reba! I can help you find and understand various DOE tax incentives and energy saving advice. How can I help you today?"""
 
-#______________________Config Items_____________________________
 #Bring in API Key
 os.environ["OPENAI_API_KEY"] = st.secrets["openai_key"]
 openai.api_key = st.secrets["openai_key"]
@@ -40,11 +47,6 @@ button_1_text = "I'm a homeowner in VA, how can I save money?"
 button_2_text = "I'm buying a vehicle and want to know if I can save some money."
 button_3_text = "I'm renting an apartment, how can I save money?"
 
-
-icon_pic = "https://github.com/JackOgozaly/doe_nav_bot/blob/main/%20%20chatbot_icon.png?raw=true"
-
-#Introduction text
-introduction_text = """Hello, I'm Reba! I can help you find and understand various DOE tax incentives and energy saving advice. How can I help you today?"""
 
 ##___________________Switch Bot Configuration______________________________##
 switch_bot_chat = [{"role": "user", "content": 
@@ -70,72 +72,67 @@ switch_bot_chat = [{"role": "user", "content":
                     """},
                    {"role": "assistant", "content": "OK"}]
 
-#____________________Streamlit Setup____________________________#
 
-# Initialize chat history
-if "messages" not in st.session_state:
-    st.session_state.messages = []
 
-#Initialize Counter
-if 'count' not in st.session_state:
-    st.session_state.count = 0
+#________________________Embedding Setup_____________________________________#
 
-#Initialize total cost
-if 'total_cost' not in st.session_state:
-    st.session_state['total_cost'] = 0.0
+#Files to download
+files = ['1iqn5yMtwdltdNYwGaoZGkLfTarLDE7Ah', '1lorEvsGcT1crC90AvKzplW59kjyG1eCp', 
+         '1k0l0JEs_k-wm2EXESjqfXXx7W_xcTSpF', '1X1lpub9C8ShV-RRmJlkKbI-tc66wBuKn', 
+         '1KTsHYpR72bPhewNMS-XTExNQBVelRJZG']
 
-#Initialize total tokens
-if 'total_tokens' not in st.session_state:
-    st.session_state['total_tokens'] = 0
+download_path = ['~/doe_nav/',
+                 '~/doe_nav/fd9f04dc-2dc5-4579-a038-9686ab316fe5/',
+                 '~/doe_nav/fd9f04dc-2dc5-4579-a038-9686ab316fe5/',
+                 '~/doe_nav/fd9f04dc-2dc5-4579-a038-9686ab316fe5/',
+                 '~/doe_nav/fd9f04dc-2dc5-4579-a038-9686ab316fe5/']
 
-#Defining our stateful buttons
-if 'clicked1' not in st.session_state:
-    st.session_state.clicked1 = False
+#Make our directory
+if not os.path.exists(download_path[1]):
+    os.makedirs(download_path[1])
 
-if 'clicked2' not in st.session_state:
-    st.session_state.clicked2 = False
+
+#We only want to call the Google Drive API once per script run. Once the directory exists and has files, don't download anything
+if len(os.listdir(download_path[1])) == 0:     
+    # Create credentials from the JSON object
+    credentials = service_account.Credentials.from_service_account_info(
+             google_api_key,
+             scopes=["https://www.googleapis.com/auth/drive"]
+         )
     
-if 'clicked3' not in st.session_state:
-    st.session_state.clicked3 = False
-
-if "clear" not in st.session_state:
-    st.session_state.clear = False
-
-#Switch bot convo
-if "switch_bot_chat" not in st.session_state:
-    st.session_state.switch_bot_chat = switch_bot_chat
-
-
+    def download_file(real_file_id, local_folder_path):
+        """Downloads a file
+        Args:
+            real_file_id: ID of the file to download
+            local_folder_path: Local path where the file will be saved
+        Returns: IO object with location.
+        """    
+        # create drive api client
+        service = build("drive", "v3", credentials=credentials)
+    
+        file_id = real_file_id
+    
+        # Get file metadata to obtain the file name
+        file_metadata = service.files().get(fileId=file_id).execute()
+        file_name = file_metadata['name']
+    
+        local_file_path = os.path.join(local_folder_path, file_name)
+    
+        # pylint: disable=maybe-no-member
+        request = service.files().get_media(fileId=file_id)
+        with open(local_file_path, 'wb') as local_file:
+            downloader = MediaIoBaseDownload(local_file, request)
+            done = False
+            while done is False:
+                    status, done = downloader.next_chunk()
+    
+        return local_file_path
+    
+    for file, path in zip(files, download_path):
+        download_file(real_file_id=file, local_folder_path=path)
+    
 
 #_____________________Function Setup________________________#
-def download_file(real_file_id, local_folder_path):
-    """Downloads a file
-    Args:
-        real_file_id: ID of the file to download
-        local_folder_path: Local path where the file will be saved
-    Returns: IO object with location.
-    """    
-    # create drive api client
-    service = build("drive", "v3", credentials=credentials)
-
-    file_id = real_file_id
-
-    # Get file metadata to obtain the file name
-    file_metadata = service.files().get(fileId=file_id).execute()
-    file_name = file_metadata['name']
-
-    local_file_path = os.path.join(local_folder_path, file_name)
-
-    # pylint: disable=maybe-no-member
-    request = service.files().get_media(fileId=file_id)
-    with open(local_file_path, 'wb') as local_file:
-        downloader = MediaIoBaseDownload(local_file, request)
-        done = False
-        while done is False:
-                status, done = downloader.next_chunk()
-
-    return local_file_path
-
 
 def fake_typing(text):
     '''
@@ -190,9 +187,6 @@ def click_button(button_type):
     else:
         st.session_state.clicked3 = True
 
-def clear_button():
-    st.session_state.clear = True
-
 def chatbot(question):
     # Display assistant response in chat message container
     with st.chat_message("assistant", avatar = icon_pic):
@@ -207,46 +201,40 @@ def chatbot(question):
        #Take our model's output and clean it up for the user
        llm_output(response)
 
+#____________________Streamlit Setup____________________________#
 
+# Initialize chat history
+if "messages" not in st.session_state:
+    st.session_state.messages = []
 
-#________________________Embedding Setup_____________________________________#
+#Initialize Counter
+if 'count' not in st.session_state:
+    st.session_state.count = 0
 
-#Files to download
-files = ['1iqn5yMtwdltdNYwGaoZGkLfTarLDE7Ah', '1lorEvsGcT1crC90AvKzplW59kjyG1eCp', 
-         '1k0l0JEs_k-wm2EXESjqfXXx7W_xcTSpF', '1X1lpub9C8ShV-RRmJlkKbI-tc66wBuKn', 
-         '1KTsHYpR72bPhewNMS-XTExNQBVelRJZG']
+#Initialize total cost
+if 'total_cost' not in st.session_state:
+    st.session_state['total_cost'] = 0.0
 
-download_path = ['~/doe_nav/',
-                 '~/doe_nav/fd9f04dc-2dc5-4579-a038-9686ab316fe5/',
-                 '~/doe_nav/fd9f04dc-2dc5-4579-a038-9686ab316fe5/',
-                 '~/doe_nav/fd9f04dc-2dc5-4579-a038-9686ab316fe5/',
-                 '~/doe_nav/fd9f04dc-2dc5-4579-a038-9686ab316fe5/']
+#Initialize total tokens
+if 'total_tokens' not in st.session_state:
+    st.session_state['total_tokens'] = 0
 
-#Make our directory
-if not os.path.exists(download_path[1]):
-    os.makedirs(download_path[1])
+#Defining our stateful buttons
+if 'clicked1' not in st.session_state:
+    st.session_state.clicked1 = False
 
-
-#We only want to call the Google Drive API once per script run. Once the directory exists and has files, don't download anything
-if len(os.listdir(download_path[1])) == 0:     
-    # Create credentials from the JSON object
-    credentials = service_account.Credentials.from_service_account_info(
-             google_api_key,
-             scopes=["https://www.googleapis.com/auth/drive"]
-         )
+if 'clicked2' not in st.session_state:
+    st.session_state.clicked2 = False
     
-    for file, path in zip(files, download_path):
-        download_file(real_file_id=file, local_folder_path=path)
+if 'clicked3' not in st.session_state:
+    st.session_state.clicked3 = False
+
+#Switch bot convo
+if "switch_bot_chat" not in st.session_state:
+    st.session_state.switch_bot_chat = switch_bot_chat
 
 
 
-    
-#Streamlit customization items
-st.title('Reba')
-st.subheader("Your Guide to Energy Rebates and Tax Incentives")
-st.sidebar.image('https://raw.githubusercontent.com/JackOgozaly/doe_nav_bot/main/reba_mascot.png')
-#st.caption('A LLM interface to explore various DOE tax incentives and energy saving advice')
-    
 # Sidebar - let user choose model, see cost, and clear history
 st.sidebar.title("Chatbot Options")
 
@@ -258,11 +246,11 @@ counter_placeholder.write(f"Total cost of this conversation: ${st.session_state[
 token_placeholder = st.sidebar.empty()
 token_placeholder.write(f"Total Tokens Used in Conversation: {st.session_state['total_tokens']}")
 #Option to clear out 
-st.sidebar.button("Clear Conversation", on_click = clear_button, key="clear_button_1")
+clear_button = st.sidebar.button("Clear Conversation", key="clear")
 
 
 #Reset the session
-if st.session_state.clear:
+if clear_button:
     st.session_state['messages'] = []
     st.session_state['count'] = 0
     st.session_state['total_cost'] = 0.0
@@ -270,7 +258,6 @@ if st.session_state.clear:
     st.session_state.clicked3 = False
     st.session_state.clicked2 = False
     st.session_state.clicked1 = False
-    st.session_state.clear = False
     counter_placeholder.write(f"Total cost of this conversation: ${st.session_state['total_cost']:.5f}")
     token_placeholder.write(f"Total Tokens Used in Conversation: {st.session_state['total_tokens']}")
 
@@ -355,11 +342,12 @@ if st.session_state.count == 0:
     col1, col2, col3 = st.columns(3)
     
     
-    col1.button(button_1_text, on_click=click_button, args=['Button 1'], key="q_button_1")
+    col1.button(button_1_text, on_click=click_button, args=['Button 1'])
     
-    col2.button(button_2_text, on_click=click_button, args=['Button 2'], key="q_button_2")
+    col2.button(button_2_text, on_click=click_button, args=['Button 2'])
     
-    col3.button(button_3_text, on_click=click_button, args=['The really funny thing is this doesnt have to be button 3 but Ill make it that anyways'], key="q_button_3")
+    col3.button(button_3_text, on_click=click_button, args=['The really funny thing is this doesnt have to be button 3 but Ill make it that anyways'])
+
 
 #Update our counter so we don't repeat the introduction
 st.session_state.count += 1
@@ -394,7 +382,7 @@ if prompt := st.chat_input():
     st.session_state.messages.append({"role": "user", "content": prompt})
     # Display user message in chat message container
     with st.chat_message("user"):
-       st.markdown(f"Debug: {prompt}")    
+       st.markdown(prompt)    
 
     response = openai.ChatCompletion.create(
         model=model,
