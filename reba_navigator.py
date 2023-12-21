@@ -20,10 +20,7 @@ from langchain.prompts import PromptTemplate #Used to modify the prompt for our 
 from langchain.callbacks import get_openai_callback #Used to bring in stuff like cost, token usage, etc.
 from langchain.embeddings import OpenAIEmbeddings #Used to embed
 from langchain.vectorstores import Chroma #Used to store embeddings
-#Authenticator Stuff
-import yaml
-from yaml.loader import SafeLoader
-import streamlit_authenticator as stauth
+
 #Shennanigans so streamlit hosting can download our embeddings properly
 __import__('pysqlite3')
 import sys
@@ -242,26 +239,7 @@ if len(os.listdir(download_path[1])) == 0:
         download_file(real_file_id=file, local_folder_path=path)
 
 
-#___________Streamlit Authentication__________#
-with open('reba_config.yaml') as file:
-    config = yaml.load(file, Loader=SafeLoader)
 
-authenticator = stauth.Authenticate(
-    config['credentials'],
-    config['cookie']['name'],
-    config['cookie']['key'],
-    config['cookie']['expiry_days'])
-
-name, authentication_status, username = authenticator.login('Login', 'main')
-
-
-if not authentication_status:
-    if authentication_status == False:
-        st.error('Username/password is incorrect')
-    elif authentication_status == None:
-        st.warning('Please enter your username and password')
-    
-    st.stop()
     
 #Streamlit customization items
 st.title('Reba')
