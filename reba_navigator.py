@@ -47,6 +47,15 @@ button_1_text = "I'm a homeowner in VA, how can I save money?"
 button_2_text = "I'm buying a vehicle and want to know if I can save some money."
 button_3_text = "I'm renting an apartment, how can I save money?"
 
+#Document Retrieval
+num_docs_retrieved = 5
+links_provided = 2
+#Typical QA retrieval provides sources that were used in the prompt. Tangenetial links options looks at the LLM's response
+#And finds links most related to that specific output. This can vary significantally from source docs
+#Tangential links, if true, are displayed above regular links
+provide_tangential_links = True
+tangential_links_provided = 1
+
 
 ##___________________Switch Bot Configuration______________________________##
 switch_bot_chat = [{"role": "user", "content": 
@@ -163,16 +172,29 @@ def llm_output(llm_response):
     
     #Empty list of links
     relevant_links = []
-    
+  
     #Go through our sources and find which URLs the LLM pulled from
     #Sort them by how many times it was references, and rank the top two sources
     for document in llm_response['source_documents']:
         relevant_links.append(document.metadata['source'])
-    # Create a non-duplicated list sorted by frequency
-    element_count = Counter(relevant_links)
-    relevant_links = sorted(element_count, key=lambda x: element_count[x], reverse=True)
-    #Filter for the top two URLS
-    relevant_links = relevant_links[0:4]
+  
+    relevant_links = list(dict.fromkeys(relevant_links))
+    #Filter for the top n URLS
+    relevant_links = relevant_links[0:links_provided]
+
+    #Tangential Links
+    if provide_tangential_links:
+        scores = vectordb.similarity_search_with_score(llm_response['answer'])
+        #Loop through our sources and find the n most similar 
+        relevant_urls = []
+        for score in scores:
+            relevant_urls.append(score[0].metadata['source'])
+        
+        relevant_urls = relevant_urls[0:tangential_links_provided]
+        relevant_links = relevant_urls + relevant_links
+        
+    
+  
     #Print our output into the chat
     fake_typing(llm_response['answer'].replace("$", "\$") + '\n\nSources:\n\n' + "\n\n".join(relevant_links))
 
@@ -294,7 +316,7 @@ vectordb = Chroma(persist_directory=persist_directory,
 
 #Set our retriver and limit the search to 4 documents
 retriever = vectordb.as_retriever()
-retriever = vectordb.as_retriever(search_kwargs={"k": 10})
+retriever = vectordb.as_retriever(search_kwargs={"k": num_docs_retrieved})
 
 
 #Modify our prompt to discourage hallucinations
