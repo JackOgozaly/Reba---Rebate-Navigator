@@ -192,6 +192,7 @@ def llm_output(llm_response):
         
         relevant_urls = relevant_urls[0:tangential_links_provided]
         relevant_links = relevant_urls + relevant_links
+        relevant_links = list(dict.fromkeys(relevant_links))
         
     
   
